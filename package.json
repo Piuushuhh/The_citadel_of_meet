@@ -1,0 +1,11 @@
+{
+  "name": "stand-in",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@10.6.3"
+}

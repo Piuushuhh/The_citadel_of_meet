@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Stand-In</title>
+<style>
+  body { font: 13px system-ui, sans-serif; width: 340px; margin: 0; padding: 12px; color: #1b1b1f; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  label { display: block; margin: 6px 0 2px; font-weight: 600; }
+  input[type=text], input[type=password], select { width: 100%; box-sizing: border-box; padding: 5px; }
+  .row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  button { padding: 6px 10px; cursor: pointer; }
+  #takeover { background: #b3261e; color: #fff; border: 0; border-radius: 4px; font-weight: 700; }
+  #status { margin-top: 10px; padding: 6px 8px; border-radius: 4px; background: #eef; }
+  #status.bad { background: #fde7e7; }
+  #log { max-height: 160px; overflow: auto; margin-top: 8px; font-size: 12px; border-top: 1px solid #ddd; padding-top: 6px; }
+  .consent { margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; font-weight: 400; }
+</style>
+</head>
+<body>
+  <h1>Stand-In: AI delegate</h1>
+  <label for="name">Your name (shown as "AI delegate for …")</label>
+  <input id="name" type="text" />
+  <label for="wake">Name it responds to</label>
+  <input id="wake" type="text" placeholder="e.g. Sam" />
+  <label for="mode">Mode</label>
+  <select id="mode">
+    <option value="explicit">Explicit address (replies when its name is said)</option>
+    <option value="manual">Manual (replies only when you press Respond)</option>
+  </select>
+  <label for="token">Local backend token</label>
+  <input id="token" type="password" />
+  <label class="consent"><input id="consent" type="checkbox" />
+    <span>Participants in this meeting have agreed to an AI delegate taking part and to transcription.</span></label>
+  <div class="row">
+    <button id="start">Start</button>
+    <button id="respond">Respond</button>
+    <button id="pause">Pause</button>
+    <button id="resume">Resume</button>
+    <button id="takeover">Take Over</button>
+  </div>
+  <div id="status">idle</div>
+  <div id="log"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

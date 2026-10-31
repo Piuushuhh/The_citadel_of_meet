@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Stand-In (AI delegate for Google Meet)",
+  "version": "0.1.0",
+  "description": "A clearly identified AI delegate that can speak for you in Google Meet, only when you explicitly start it.",
+  "action": { "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:8787/*", "https://api.openai.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["page.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}
