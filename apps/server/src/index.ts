@@ -1,6 +1,9 @@
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "node:fs";
 import { createApp } from "./app.js";
+import { loadProjectEnv } from "./env.js";
+
+loadProjectEnv(new URL("../../../.env", import.meta.url));
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
 const localToken = process.env.STANDIN_LOCAL_TOKEN ?? "";
