@@ -34,8 +34,19 @@ export interface StatusMsg {
     tracks: { id: string; ready: string; muted: boolean; enabled: boolean; peak: number }[];
     inboundBytesSent?: number;
     /** Meet's own receive stats: proves whether voice reaches the browser at all. */
-    meetInbound?: { packets: number; audioLevel: number; energy: number }[];
+    meetInbound?: {
+      packets: number;
+      audioLevel: number;
+      energy: number;
+      samplesDuration: number;
+      concealed: number;
+      decoded: number;
+    }[];
     allRemoteSeen: number;
+    /** How many of Meet's own playback chains are being read, and how many Meet created. */
+    taps?: number;
+    meetSourcesSeen?: number;
+    meetElsSeen?: number;
   };
 }
 
@@ -67,9 +78,14 @@ export interface MintResult {
 }
 
 /** True when the transcript text addresses the delegate by its wake name. */
-export function isAddressed(text: string, wakeName: string): boolean {
-  const w = wakeName.trim().toLowerCase();
-  if (!w) return false;
-  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${esc}([^\\p{L}\\p{N}]|$)`, "iu").test(text);
+export function isAddressed(text: string, wakeNames: string): boolean {
+  // Several names may be given, comma-separated (speech-to-text often respells names).
+  return wakeNames
+    .split(",")
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean)
+    .some((w) => {
+      const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^\\p{L}\\p{N}])${esc}([^\\p{L}\\p{N}]|$)`, "iu").test(text);
+    });
 }

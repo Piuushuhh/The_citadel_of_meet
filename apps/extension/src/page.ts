@@ -37,6 +37,42 @@ function rpc<T>(method: "mint" | "sdp", params: unknown): Promise<T> {
   });
 }
 
+// ---------- record (not read) how Meet plays incoming audio ----------
+// Hooked at document_start so we see the nodes/elements Meet creates. Nothing is tapped until Start.
+const origCMSS = AudioContext.prototype.createMediaStreamSource;
+/** Create a source WITHOUT recording it as Meet's (used for our own graph). */
+const cmss = (c: BaseAudioContext, s: MediaStream) => origCMSS.call(c, s) as MediaStreamAudioSourceNode;
+const meetSources = new Set<MediaStreamAudioSourceNode>();
+AudioContext.prototype.createMediaStreamSource = function (this: AudioContext, s: MediaStream) {
+  const n = origCMSS.call(this, s) as MediaStreamAudioSourceNode;
+  meetSources.add(n);
+  return n;
+};
+const OrigMSASN = (window as unknown as { MediaStreamAudioSourceNode?: typeof MediaStreamAudioSourceNode }).MediaStreamAudioSourceNode;
+if (OrigMSASN) {
+  (window as unknown as { MediaStreamAudioSourceNode: unknown }).MediaStreamAudioSourceNode = class extends OrigMSASN {
+    constructor(ctx: AudioContext, opts: MediaStreamAudioSourceOptions) {
+      super(ctx, opts);
+      meetSources.add(this);
+    }
+  };
+}
+const meetEls = new Set<HTMLMediaElement>();
+const srcObjDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "srcObject");
+if (srcObjDesc?.get && srcObjDesc.set) {
+  Object.defineProperty(HTMLMediaElement.prototype, "srcObject", {
+    configurable: true,
+    enumerable: srcObjDesc.enumerable,
+    get(this: HTMLMediaElement) {
+      return srcObjDesc.get!.call(this);
+    },
+    set(this: HTMLMediaElement, v: MediaProvider | null) {
+      if (v) meetEls.add(this);
+      srcObjDesc.set!.call(this, v);
+    },
+  });
+}
+
 // ---------- audio graph (created lazily) ----------
 let ac: AudioContext | undefined;
 let outDest: MediaStreamAudioDestinationNode;
@@ -65,7 +101,7 @@ if (md?.getUserMedia) {
     const stream = await origGUM(constraints);
     if (!constraints?.audio || stream.getAudioTracks().length === 0) return stream;
     const ctx = ensureAudio();
-    ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks())).connect(realGain);
+    cmss(ctx, new MediaStream(stream.getAudioTracks())).connect(realGain);
     // Return a clone so Meet stopping it never kills our shared destination track.
     const outTrack = outDest.stream.getAudioTracks()[0].clone();
     return new MediaStream([outTrack, ...stream.getVideoTracks()]);
@@ -75,6 +111,7 @@ if (md?.getUserMedia) {
 // ---------- remote (incoming) audio tracks: record only ----------
 const remoteTracks = new Set<MediaStreamTrack>();
 const meetPcs: RTCPeerConnection[] = [];
+const streamOf = new Map<MediaStreamTrack, MediaStream>(); // the ORIGINAL stream each remote track arrived in
 const OrigPC = window.RTCPeerConnection;
 class HookedPC extends OrigPC {
   constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
@@ -83,6 +120,7 @@ class HookedPC extends OrigPC {
     this.addEventListener("track", (e) => {
       if (e.track.kind !== "audio") return;
       remoteTracks.add(e.track);
+      if (e.streams[0]) streamOf.set(e.track, e.streams[0]);
       e.track.addEventListener("ended", () => remoteTracks.delete(e.track));
       if (session) attachRemote(e.track);
       emitStatus();
@@ -99,7 +137,15 @@ interface Meter {
 const meters = new Map<MediaStreamTrack, Meter>();
 let mixMeter: Meter | undefined;
 let bytesSent: number | undefined;
-let meetInbound: { packets: number; audioLevel: number; energy: number }[] = [];
+type MeetInbound = {
+  packets: number;
+  audioLevel: number;
+  energy: number;
+  samplesDuration: number;
+  concealed: number;
+  decoded: number;
+};
+let meetInbound: MeetInbound[] = [];
 let samplerId: ReturnType<typeof setInterval> | undefined;
 let statsTick = 0;
 const meterBuf = new Float32Array(1024);
@@ -121,6 +167,7 @@ function startSampler() {
   samplerId = setInterval(() => {
     meters.forEach(readMeter);
     if (mixMeter) readMeter(mixMeter);
+    if (statsTick % 10 === 0 && session) tapMeetAudio();
     if (++statsTick % 10 === 0 && session) {
       session.pc
         .getStats()
@@ -137,10 +184,17 @@ function startSampler() {
             : p
                 .getStats()
                 .then((rep) => {
-                  const out: { packets: number; audioLevel: number; energy: number }[] = [];
+                  const out: MeetInbound[] = [];
                   rep.forEach((r) => {
                     if (r.type === "inbound-rtp" && r.kind === "audio")
-                      out.push({ packets: r.packetsReceived ?? 0, audioLevel: r.audioLevel ?? 0, energy: r.totalAudioEnergy ?? 0 });
+                      out.push({
+                        packets: r.packetsReceived ?? 0,
+                        audioLevel: r.audioLevel ?? 0,
+                        energy: r.totalAudioEnergy ?? 0,
+                        samplesDuration: r.totalSamplesDuration ?? 0,
+                        concealed: r.concealedSamples ?? 0,
+                        decoded: r.totalSamplesReceived ?? 0,
+                      });
                   });
                   return out;
                 })
@@ -167,7 +221,6 @@ interface Session {
   inDest: MediaStreamAudioDestinationNode;
   sources: Map<MediaStreamTrack, MediaStreamAudioSourceNode>;
   audioEl: HTMLAudioElement;
-  keepAlive: HTMLAudioElement[];
   consentAt: number;
 }
 let session: Session | undefined;
@@ -215,6 +268,9 @@ function emitStatus() {
         })),
         inboundBytesSent: bytesSent,
         meetInbound,
+        taps: tapCount,
+        meetSourcesSeen: meetSources.size,
+        meetElsSeen: meetEls.size,
         allRemoteSeen: remoteTracks.size,
       }
     : undefined;
@@ -224,21 +280,59 @@ function emitStatus() {
 function attachRemote(track: MediaStreamTrack) {
   if (!session || session.sources.has(track) || track.readyState !== "live") return;
   const ctx = ensureAudio();
-  const src = ctx.createMediaStreamSource(new MediaStream([track]));
+  const src = cmss(ctx, new MediaStream([track]));
   src.connect(session.inDest);
   session.sources.set(track, src);
   meters.set(track, makeMeter(src));
-  // Chrome quirk: Web Audio may receive silence from a remote WebRTC track unless it is also attached to a media element.
-  const el = new Audio();
-  el.muted = true;
-  el.srcObject = new MediaStream([track]);
-  void el.play().catch(() => undefined);
-  session.keepAlive.push(el);
   track.addEventListener("ended", () => {
     session?.sources.get(track)?.disconnect();
     session?.sources.delete(track);
     emitStatus();
   });
+}
+
+const tapped = new WeakSet<object>();
+const tapCleanup: (() => void)[] = [];
+let tapCount = 0;
+
+const isMeetAudio = (s: MediaStream | null | undefined) =>
+  !!s && s.getAudioTracks().some((t) => remoteTracks.has(t));
+
+/**
+ * Tap the audio chains Meet itself uses to play other participants. Meet's own playback demonstrably works,
+ * so this reads exactly what you hear. Only streams that carry REMOTE tracks are tapped, so the delegate's
+ * own voice (our outgoing mic) can never be fed back to itself.
+ */
+function tapMeetAudio() {
+  if (!session) return;
+  const ctx = ensureAudio();
+  const attach = (key: object, stream: MediaStream, undo: () => void) => {
+    const track = stream.getAudioTracks()[0];
+    if (!track || !session) return false;
+    const src = cmss(ctx, stream);
+    src.connect(session.inDest);
+    session.sources.set(track, src);
+    meters.set(track, makeMeter(src));
+    tapped.add(key);
+    tapCleanup.push(() => {
+      src.disconnect();
+      undo();
+    });
+    tapCount++;
+    return true;
+  };
+  for (const n of meetSources) {
+    if (tapped.has(n) || !isMeetAudio(n.mediaStream)) continue;
+    const dest = (n.context as AudioContext).createMediaStreamDestination();
+    n.connect(dest);
+    if (!attach(n, dest.stream, () => n.disconnect(dest))) n.disconnect(dest);
+  }
+  for (const el of meetEls) {
+    if (tapped.has(el) || !isMeetAudio(el.srcObject as MediaStream | null)) continue;
+    const cs = (el as HTMLMediaElement & { captureStream?: () => MediaStream }).captureStream?.();
+    if (cs && cs.getAudioTracks().length) attach(el, cs, () => undefined);
+  }
+  emitStatus();
 }
 
 function sendEvent(ev: unknown) {
@@ -338,14 +432,14 @@ async function startSession(cfg: StartConfig, consent: number) {
     const audioEl = new Audio();
     audioEl.muted = true; // Chrome only pumps remote WebRTC audio into Web Audio if it is also attached to an element
     const dc = pc.createDataChannel("oai-events");
-    session = { cfg, pc, dc, inDest, sources: new Map(), audioEl, keepAlive: [], consentAt: consent };
-    mixMeter = makeMeter(ctx.createMediaStreamSource(inDest.stream));
+    session = { cfg, pc, dc, inDest, sources: new Map(), audioEl, consentAt: consent };
+    mixMeter = makeMeter(cmss(ctx, inDest.stream));
     startSampler();
 
     pc.addTrack(inDest.stream.getAudioTracks()[0], inDest.stream);
     pc.ontrack = (e) => {
       audioEl.srcObject = e.streams[0];
-      ctx.createMediaStreamSource(e.streams[0]).connect(delegateGain);
+      cmss(ctx, e.streams[0]).connect(delegateGain);
     };
     dc.onmessage = (e) => onEvent(String(e.data));
     dc.onopen = () => {
@@ -365,6 +459,7 @@ async function startSession(cfg: StartConfig, consent: number) {
     };
 
     for (const t of liveRemote()) attachRemote(t);
+    tapMeetAudio();
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -390,10 +485,8 @@ function teardown() {
       /* ignore */
     }
     session.audioEl.srcObject = null;
-    session.keepAlive.forEach((el) => {
-      el.pause();
-      el.srcObject = null;
-    });
+    tapCleanup.forEach((f) => f());
+    tapCleanup.length = 0;
     session = undefined;
   }
   stopSampler();

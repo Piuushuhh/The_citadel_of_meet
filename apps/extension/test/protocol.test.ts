@@ -15,6 +15,11 @@ describe("isAddressed", () => {
     expect(isAddressed("anything at all", "")).toBe(false);
     expect(isAddressed("anything at all", "   ")).toBe(false);
   });
+  it("accepts several comma-separated names", () => {
+    expect(isAddressed("Sambh, what is the launch date?", "Sam, Sambh, Sambhram")).toBe(true);
+    expect(isAddressed("Sambhram can you answer", "Sam, Sambhram")).toBe(true);
+    expect(isAddressed("Priya can you answer", "Sam, Sambh")).toBe(false);
+  });
   it("escapes regex characters", () => {
     expect(isAddressed("hello", ".*")).toBe(false);
   });
