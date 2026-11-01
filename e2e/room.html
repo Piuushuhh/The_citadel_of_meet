@@ -1,0 +1,70 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Fake Meet room (test harness)</title></head>
+<body>
+<h1>Fake Meet room (test harness, not Google Meet)</h1>
+<script>
+// "Meet" side = this top frame (extension hooks apply). "Other participant" = unhooked iframe.
+window.__samples = [];   // {t, raw, hf}
+window.__ready = false;
+window.__err = null;
+
+(async () => {
+  try {
+    // The user's mic, as Meet would request it (wrapped by the extension).
+    // Processing off in the harness only: Chrome's noise suppression would erase the constant test tone.
+    const mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    window.__micTrack = mic.getAudioTracks()[0];
+
+    const ifr = document.createElement('iframe');
+    ifr.srcdoc = '<!doctype html><body></body>';
+    document.body.appendChild(ifr);
+    await new Promise(r => ifr.onload = r);
+    const W = ifr.contentWindow;
+
+    const pc1 = new RTCPeerConnection();       // Meet's connection (hooked)
+    const pc2 = new W.RTCPeerConnection();     // other participant (unhooked)
+    pc1.onicecandidate = e => e.candidate && pc2.addIceCandidate(e.candidate);
+    pc2.onicecandidate = e => e.candidate && pc1.addIceCandidate(e.candidate);
+
+    // Participant's outgoing "voice" is an AudioContext destination we feed with wav files.
+    const pctx = new W.AudioContext();
+    const pdest = pctx.createMediaStreamDestination();
+    window.__pctx = pctx; window.__pdest = pdest;
+
+    pc1.addTrack(window.__micTrack, mic);
+    pc2.addTrack(pdest.stream.getAudioTracks()[0], pdest.stream);
+
+    // Measure what the participant hears from the user's outgoing track.
+    pc2.ontrack = (e) => {
+      const el = new W.Audio(); el.muted = true; el.srcObject = e.streams[0]; el.play().catch(()=>{});
+      const src = pctx.createMediaStreamSource(e.streams[0]);
+      const raw = pctx.createAnalyser(); raw.fftSize = 1024;
+      const hp1 = pctx.createBiquadFilter(); hp1.type = 'highpass'; hp1.frequency.value = 800;
+      const hp2 = pctx.createBiquadFilter(); hp2.type = 'highpass'; hp2.frequency.value = 800;
+      const hf = pctx.createAnalyser(); hf.fftSize = 1024;
+      src.connect(raw); src.connect(hp1); hp1.connect(hp2); hp2.connect(hf);
+      const buf = new Float32Array(1024);
+      const rms = (an) => { an.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v*v; return Math.sqrt(s/buf.length); };
+      setInterval(() => window.__samples.push({ t: Date.now(), raw: rms(raw), hf: rms(hf) }), 20);
+    };
+
+    await pc1.setLocalDescription(await pc1.createOffer());
+    await pc2.setRemoteDescription(pc1.localDescription);
+    await pc2.setLocalDescription(await pc2.createAnswer());
+    await pc1.setRemoteDescription(pc2.localDescription);
+
+    window.__ask = async (name) => {
+      if (pctx.state === 'suspended') await pctx.resume();
+      const ab = await (await fetch('/fx/' + name + '.wav')).arrayBuffer();
+      const buf = await pctx.decodeAudioData(ab);
+      const s = pctx.createBufferSource(); s.buffer = buf; s.connect(pdest); s.start();
+      const startedAt = Date.now();
+      return { startedAt, endsAt: startedAt + buf.duration * 1000, durationMs: buf.duration * 1000 };
+    };
+    window.__ready = true;
+  } catch (e) { window.__err = String(e && e.stack || e); }
+})();
+</script>
+</body></html>
