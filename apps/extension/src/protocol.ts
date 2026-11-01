@@ -25,6 +25,18 @@ export interface StatusMsg {
   detail?: string;
   remoteAudioTracks: number;
   consentAt?: number;
+  /** Audio-routing diagnostics (levels are 0..1 peak, decaying). */
+  debug?: {
+    acState?: string;
+    pc?: string;
+    dc?: string;
+    mixPeak: number;
+    tracks: { id: string; ready: string; muted: boolean; enabled: boolean; peak: number }[];
+    inboundBytesSent?: number;
+    /** Meet's own receive stats: proves whether voice reaches the browser at all. */
+    meetInbound?: { packets: number; audioLevel: number; energy: number }[];
+    allRemoteSeen: number;
+  };
 }
 
 // popup/content -> page

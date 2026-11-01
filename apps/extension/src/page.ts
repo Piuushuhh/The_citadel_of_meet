@@ -74,10 +74,12 @@ if (md?.getUserMedia) {
 
 // ---------- remote (incoming) audio tracks: record only ----------
 const remoteTracks = new Set<MediaStreamTrack>();
+const meetPcs: RTCPeerConnection[] = [];
 const OrigPC = window.RTCPeerConnection;
 class HookedPC extends OrigPC {
   constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
     super(...args);
+    meetPcs.push(this);
     this.addEventListener("track", (e) => {
       if (e.track.kind !== "audio") return;
       remoteTracks.add(e.track);
@@ -90,6 +92,74 @@ class HookedPC extends OrigPC {
 window.RTCPeerConnection = HookedPC as unknown as typeof RTCPeerConnection;
 
 // ---------- delegate session ----------
+interface Meter {
+  an: AnalyserNode;
+  peak: number;
+}
+const meters = new Map<MediaStreamTrack, Meter>();
+let mixMeter: Meter | undefined;
+let bytesSent: number | undefined;
+let meetInbound: { packets: number; audioLevel: number; energy: number }[] = [];
+let samplerId: ReturnType<typeof setInterval> | undefined;
+let statsTick = 0;
+const meterBuf = new Float32Array(1024);
+
+function makeMeter(src: AudioNode): Meter {
+  const an = src.context.createAnalyser();
+  an.fftSize = 1024;
+  src.connect(an);
+  return { an, peak: 0 };
+}
+function readMeter(m: Meter) {
+  m.an.getFloatTimeDomainData(meterBuf);
+  let s = 0;
+  for (const v of meterBuf) s += v * v;
+  m.peak = Math.max(m.peak * 0.97, Math.sqrt(s / meterBuf.length));
+}
+function startSampler() {
+  stopSampler();
+  samplerId = setInterval(() => {
+    meters.forEach(readMeter);
+    if (mixMeter) readMeter(mixMeter);
+    if (++statsTick % 10 === 0 && session) {
+      session.pc
+        .getStats()
+        .then((rep) => {
+          rep.forEach((r) => {
+            if (r.type === "outbound-rtp" && r.kind === "audio") bytesSent = r.bytesSent;
+          });
+        })
+        .catch(() => undefined);
+      void Promise.all(
+        meetPcs.map((p) =>
+          p.connectionState === "closed"
+            ? Promise.resolve([])
+            : p
+                .getStats()
+                .then((rep) => {
+                  const out: { packets: number; audioLevel: number; energy: number }[] = [];
+                  rep.forEach((r) => {
+                    if (r.type === "inbound-rtp" && r.kind === "audio")
+                      out.push({ packets: r.packetsReceived ?? 0, audioLevel: r.audioLevel ?? 0, energy: r.totalAudioEnergy ?? 0 });
+                  });
+                  return out;
+                })
+                .catch(() => []),
+        ),
+      ).then((all) => {
+        meetInbound = all.flat();
+      });
+    }
+  }, 100);
+}
+function stopSampler() {
+  if (samplerId) clearInterval(samplerId);
+  samplerId = undefined;
+  meters.clear();
+  mixMeter = undefined;
+  bytesSent = undefined;
+}
+
 interface Session {
   cfg: StartConfig;
   pc: RTCPeerConnection;
@@ -97,6 +167,7 @@ interface Session {
   inDest: MediaStreamAudioDestinationNode;
   sources: Map<MediaStreamTrack, MediaStreamAudioSourceNode>;
   audioEl: HTMLAudioElement;
+  keepAlive: HTMLAudioElement[];
   consentAt: number;
 }
 let session: Session | undefined;
@@ -129,7 +200,25 @@ function emitStatus() {
       d = "No meeting audio is being captured (is anyone else in the call speaking/unmuted?)";
     }
   }
-  send({ kind: "status", status: { state: s, detail: d, remoteAudioTracks: session?.sources.size ?? 0, consentAt } });
+  const debug = session
+    ? {
+        acState: ac?.state,
+        pc: session.pc.connectionState,
+        dc: session.dc.readyState,
+        mixPeak: +(mixMeter?.peak ?? 0).toFixed(4),
+        tracks: [...session.sources.keys()].map((t) => ({
+          id: t.id.slice(0, 6),
+          ready: t.readyState,
+          muted: t.muted,
+          enabled: t.enabled,
+          peak: +(meters.get(t)?.peak ?? 0).toFixed(4),
+        })),
+        inboundBytesSent: bytesSent,
+        meetInbound,
+        allRemoteSeen: remoteTracks.size,
+      }
+    : undefined;
+  send({ kind: "status", status: { state: s, detail: d, remoteAudioTracks: session?.sources.size ?? 0, consentAt, debug } });
 }
 
 function attachRemote(track: MediaStreamTrack) {
@@ -138,6 +227,13 @@ function attachRemote(track: MediaStreamTrack) {
   const src = ctx.createMediaStreamSource(new MediaStream([track]));
   src.connect(session.inDest);
   session.sources.set(track, src);
+  meters.set(track, makeMeter(src));
+  // Chrome quirk: Web Audio may receive silence from a remote WebRTC track unless it is also attached to a media element.
+  const el = new Audio();
+  el.muted = true;
+  el.srcObject = new MediaStream([track]);
+  void el.play().catch(() => undefined);
+  session.keepAlive.push(el);
   track.addEventListener("ended", () => {
     session?.sources.get(track)?.disconnect();
     session?.sources.delete(track);
@@ -242,7 +338,9 @@ async function startSession(cfg: StartConfig, consent: number) {
     const audioEl = new Audio();
     audioEl.muted = true; // Chrome only pumps remote WebRTC audio into Web Audio if it is also attached to an element
     const dc = pc.createDataChannel("oai-events");
-    session = { cfg, pc, dc, inDest, sources: new Map(), audioEl, consentAt: consent };
+    session = { cfg, pc, dc, inDest, sources: new Map(), audioEl, keepAlive: [], consentAt: consent };
+    mixMeter = makeMeter(ctx.createMediaStreamSource(inDest.stream));
+    startSampler();
 
     pc.addTrack(inDest.stream.getAudioTracks()[0], inDest.stream);
     pc.ontrack = (e) => {
@@ -292,8 +390,13 @@ function teardown() {
       /* ignore */
     }
     session.audioEl.srcObject = null;
+    session.keepAlive.forEach((el) => {
+      el.pause();
+      el.srcObject = null;
+    });
     session = undefined;
   }
+  stopSampler();
   responding = false;
 }
 
