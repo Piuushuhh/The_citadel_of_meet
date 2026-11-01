@@ -47,6 +47,7 @@ export interface StatusMsg {
     taps?: number;
     meetSourcesSeen?: number;
     meetElsSeen?: number;
+    meetNodes?: unknown[];
   };
 }
 

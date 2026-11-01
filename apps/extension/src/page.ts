@@ -37,6 +37,25 @@ function rpc<T>(method: "mint" | "sdp", params: unknown): Promise<T> {
   });
 }
 
+// Remote tracks (filled by the RTCPeerConnection hook below). Clones of a remote track are remote too.
+const remoteTracks = new Set<MediaStreamTrack>();
+const origTrackClone = MediaStreamTrack.prototype.clone;
+MediaStreamTrack.prototype.clone = function (this: MediaStreamTrack) {
+  const c = origTrackClone.call(this);
+  if (remoteTracks.has(this)) remoteTracks.add(c);
+  return c;
+};
+const origStreamClone = MediaStream.prototype.clone;
+MediaStream.prototype.clone = function (this: MediaStream) {
+  const c = origStreamClone.call(this);
+  const a = this.getAudioTracks();
+  const b = c.getAudioTracks();
+  a.forEach((t, i) => {
+    if (remoteTracks.has(t) && b[i]) remoteTracks.add(b[i]);
+  });
+  return c;
+};
+
 // ---------- record (not read) how Meet plays incoming audio ----------
 // Hooked at document_start so we see the nodes/elements Meet creates. Nothing is tapped until Start.
 const origCMSS = AudioContext.prototype.createMediaStreamSource;
@@ -109,7 +128,6 @@ if (md?.getUserMedia) {
 }
 
 // ---------- remote (incoming) audio tracks: record only ----------
-const remoteTracks = new Set<MediaStreamTrack>();
 const meetPcs: RTCPeerConnection[] = [];
 const streamOf = new Map<MediaStreamTrack, MediaStream>(); // the ORIGINAL stream each remote track arrived in
 const OrigPC = window.RTCPeerConnection;
@@ -269,6 +287,7 @@ function emitStatus() {
         inboundBytesSent: bytesSent,
         meetInbound,
         taps: tapCount,
+        meetNodes: describeMeetNodes(),
         meetSourcesSeen: meetSources.size,
         meetElsSeen: meetEls.size,
         allRemoteSeen: remoteTracks.size,
@@ -289,6 +308,21 @@ function attachRemote(track: MediaStreamTrack) {
     session?.sources.delete(track);
     emitStatus();
   });
+}
+
+function describeMeetNodes() {
+  const tr = (s: MediaStream | null | undefined) =>
+    (s?.getAudioTracks() ?? []).map((t) => ({
+      id: t.id.slice(0, 6),
+      ready: t.readyState,
+      muted: t.muted,
+      remote: remoteTracks.has(t),
+      deviceId: !!t.getSettings().deviceId,
+    }));
+  return [
+    ...[...meetSources].map((n) => ({ kind: "node", ctx: (n.context as AudioContext).state, tracks: tr(n.mediaStream) })),
+    ...[...meetEls].map((e) => ({ kind: "el:" + e.tagName.toLowerCase(), paused: e.paused, muted: e.muted, tracks: tr(e.srcObject as MediaStream | null) })),
+  ];
 }
 
 const tapped = new WeakSet<object>();
