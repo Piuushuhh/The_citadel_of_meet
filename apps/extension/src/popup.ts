@@ -11,18 +11,27 @@ async function activeMeetTab(): Promise<number | null> {
 async function sendCommand(command: Command) {
   const id = await activeMeetTab();
   if (id === null) {
-    setStatus({ state: "needs-user", detail: "Open this popup on a Google Meet tab", remoteAudioTracks: 0 });
+    notice("Open this popup on a Google Meet tab (meet.google.com)");
     return null;
   }
   try {
     return await chrome.tabs.sendMessage(id, { kind: "command", command });
   } catch {
-    setStatus({ state: "needs-user", detail: "Reload the Meet tab once after installing the extension", remoteAudioTracks: 0 });
+    notice("Reload the Meet tab (F5) once after installing or updating the extension");
     return null;
   }
 }
 
-function setStatus(s: StatusMsg) {
+// Popup-side messages (validation, "reload the tab") stay visible for a few seconds
+// instead of being wiped by the 1s status refresh.
+let stickyUntil = 0;
+function notice(detail: string) {
+  stickyUntil = Date.now() + 5000;
+  setStatus({ state: "needs-user", detail, remoteAudioTracks: 0 }, true);
+}
+
+function setStatus(s: StatusMsg, force = false) {
+  if (!force && Date.now() < stickyUntil) return;
   const el = $("status");
   const bad = s.state === "disconnected" || s.state === "needs-user";
   el.className = bad ? "bad" : "";
@@ -60,10 +69,9 @@ async function init() {
     const wake = $<HTMLInputElement>("wake").value.trim() || name;
     const mode = $<HTMLSelectElement>("mode").value as "explicit" | "manual";
     const token = $<HTMLInputElement>("token").value.trim();
-    if (!name) return setStatus({ state: "needs-user", detail: "Enter your name", remoteAudioTracks: 0 });
-    if (!token) return setStatus({ state: "needs-user", detail: "Enter the local backend token", remoteAudioTracks: 0 });
-    if (!$<HTMLInputElement>("consent").checked)
-      return setStatus({ state: "needs-user", detail: "Confirm participant consent first", remoteAudioTracks: 0 });
+    if (!name) return notice("Enter your name");
+    if (!token) return notice("Enter the local backend token");
+    if (!$<HTMLInputElement>("consent").checked) return notice("Confirm participant consent first");
     await chrome.storage.local.set({ name, wake, mode, token });
     await sendCommand({ cmd: "start", cfg: { name, wakeName: wake, mode }, consentAt: Date.now() });
   };
