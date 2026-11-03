@@ -18,6 +18,8 @@ export interface StartConfig {
   /** Spoken name that triggers a reply in explicit-address mode. */
   wakeName: string;
   mode: "explicit" | "manual" | "automatic";
+  /** Experimental: in explicit mode, detect the name from Meet's live captions instead of OpenAI's transcript. */
+  wakeSource?: "openai" | "captions";
 }
 
 export interface StatusMsg {
