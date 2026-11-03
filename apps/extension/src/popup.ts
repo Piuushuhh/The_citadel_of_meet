@@ -168,7 +168,8 @@ async function refresh() {
 }
 
 async function init() {
-  const saved = await chrome.storage.local.get(["name", "wake", "mode", "token"]);
+  const saved = await chrome.storage.local.get(["name", "wake", "mode", "token", "captions"]);
+  $<HTMLInputElement>("captions").checked = saved.captions === true;
   $<HTMLInputElement>("name").value = saved.name ?? "";
   $<HTMLInputElement>("wake").value = saved.wake ?? "";
   $<HTMLSelectElement>("mode").value = saved.mode ?? "explicit";
@@ -181,6 +182,7 @@ async function init() {
     const wake = $<HTMLInputElement>("wake").value.trim() || name;
     const mode = $<HTMLSelectElement>("mode").value as "explicit" | "manual" | "automatic";
     const token = $<HTMLInputElement>("token").value.trim();
+    const captions = $<HTMLInputElement>("captions").checked;
     if (!name) return notice("Enter your name");
     if (!token) return notice("Enter the local backend token");
     if (!$<HTMLInputElement>("consent").checked) return notice("Confirm participant consent first");
@@ -194,8 +196,9 @@ async function init() {
     showStatusText("Starting…");
     armStartupTimer();
     try {
-      await chrome.storage.local.set({ name, wake, mode, token });
-      const response = await sendCommand({ cmd: "start", cfg: { name, wakeName: wake, mode }, consentAt: Date.now() });
+      await chrome.storage.local.set({ name, wake, mode, token, captions });
+      const wakeSource = captions ? "captions" : "openai";
+      const response = await sendCommand({ cmd: "start", cfg: { name, wakeName: wake, mode, wakeSource }, consentAt: Date.now() });
       if (!response || typeof response !== "object" || (response as { ok?: unknown }).ok !== true) {
         const failure = lastCommandError || "The Start request could not be delivered to the Meet tab.";
         await sendCommand({ cmd: "takeover" });

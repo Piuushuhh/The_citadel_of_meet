@@ -45,12 +45,6 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.5)
 
-  e2e:
-    devDependencies:
-      playwright-core:
-        specifier: ^1.50.0
-        version: 1.64.1
-
 packages:
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -776,11 +770,6 @@ packages:
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
-  playwright-core@1.64.1:
-    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1401,8 +1390,6 @@ snapshots:
   pathval@2.0.1: {}
 
   picocolors@1.1.1: {}
-
-  playwright-core@1.64.1: {}
 
   postcss@8.5.32:
     dependencies:

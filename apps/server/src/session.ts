@@ -52,15 +52,24 @@ export async function mintClientSecret(cfg: ServerConfig, req: SessionRequest) {
         type: "realtime",
         model: cfg.model,
         instructions: buildInstructions(req, cfg.knowledge),
+        // Per-token confidence, so the extension can drop transcripts the model was unsure about
+        // instead of showing or acting on wrong words.
+        include: ["item.input_audio_transcription.logprobs"],
         audio: {
           input: {
+            // Meet audio is already echo-cancelled speech from a headset/laptop mic.
+            noise_reduction: { type: "near_field" },
             transcription: {
-              model: "gpt-4o-mini-transcribe",
+              // Full model: the mini model dropped and misheard words on real Meet audio.
+              model: "gpt-4o-transcribe",
               language: "en",
               prompt: "The meeting is intended to be conducted in English. Transcribe only English speech in English using Latin script. Do not translate speech in another language into English. If speech is not English or cannot be reliably understood as English, do not invent an English transcript.",
             },
             turn_detection: {
               type: "semantic_vad",
+              // "low" waits for the speaker to really finish, so a question is not split into
+              // fragments at short pauses (fragments lost parts of the question).
+              eagerness: "low",
               create_response: false,
               interrupt_response: true,
             },
