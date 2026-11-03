@@ -23,5 +23,21 @@ const app = createApp(
   localToken,
 );
 const port = Number(process.env.PORT ?? 8787);
-serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
-console.log(`Stand-In server on http://127.0.0.1:${port} (loopback only)`);
+const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info) => {
+  console.log(`Stand-In server on http://127.0.0.1:${info.port} (loopback only)`);
+});
+
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Please terminate any conflicting process before starting.`);
+  } else {
+    console.error(`Server error:`, err);
+  }
+  process.exit(1);
+});
+
+const shutdown = () => {
+  server.close(() => process.exit(0));
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

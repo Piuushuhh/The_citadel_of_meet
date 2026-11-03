@@ -42,6 +42,8 @@ describe("POST /session", () => {
     const sent = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(sent.session.instructions).toContain("AI delegate for Sam");
     expect(sent.session.audio.input.turn_detection.create_response).toBe(false);
+    expect(sent.session.audio.input.transcription.language).toBe("en");
+    expect(sent.session.audio.input.transcription.prompt).toContain("Do not translate");
   });
 
   it("returns 502 without leaking upstream detail", async () => {
