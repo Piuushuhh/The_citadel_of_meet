@@ -17,11 +17,13 @@ export interface StartConfig {
   style?: string;
   /** Spoken name that triggers a reply in explicit-address mode. */
   wakeName: string;
-  mode: "explicit" | "manual";
+  mode: "explicit" | "manual" | "automatic";
 }
 
 export interface StatusMsg {
   state: DelegateState;
+  /** Monotonic page-session status version, used to distinguish fresh Start feedback from cached status. */
+  revision?: number;
   detail?: string;
   remoteAudioTracks: number;
   consentAt?: number;

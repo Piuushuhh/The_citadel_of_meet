@@ -54,7 +54,11 @@ export async function mintClientSecret(cfg: ServerConfig, req: SessionRequest) {
         instructions: buildInstructions(req, cfg.knowledge),
         audio: {
           input: {
-            transcription: { model: "gpt-4o-mini-transcribe" },
+            transcription: {
+              model: "gpt-4o-mini-transcribe",
+              language: "en",
+              prompt: "The meeting is intended to be conducted in English. Transcribe only English speech in English using Latin script. Do not translate speech in another language into English. If speech is not English or cannot be reliably understood as English, do not invent an English transcript.",
+            },
             turn_detection: {
               type: "semantic_vad",
               create_response: false,
