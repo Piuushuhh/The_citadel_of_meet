@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "hono": "^4.6.0"
+    "hono": "^4.6.0",
+    "unpdf": "1.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -42,8 +42,10 @@ describe("POST /session", () => {
     const sent = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(sent.session.instructions).toContain("AI delegate for Sam");
     expect(sent.session.audio.input.turn_detection.create_response).toBe(false);
-    expect(sent.session.audio.input.transcription.language).toBe("en");
-    expect(sent.session.audio.input.transcription.prompt).toContain("Do not translate");
+    // The delegate hears through Meet captions (text): no audio transcription, no audio-driven interruption.
+    expect(sent.session.audio.input.transcription).toBeUndefined();
+    expect(sent.session.audio.input.turn_detection.interrupt_response).toBe(false);
+    expect(sent.session.instructions).toContain("[Meet caption]");
   });
 
   it("returns 502 without leaking upstream detail", async () => {
@@ -60,5 +62,11 @@ describe("instructions", () => {
     const s = buildInstructions({ name: "Sam" }, "X");
     expect(s).toContain("untrusted");
     expect(s).toContain("=== APPROVED KNOWLEDGE ===");
+  });
+
+  it("tells the model to keep meeting context and trust caption text", () => {
+    const s = buildInstructions({ name: "Sam" }, "X");
+    expect(s).toContain("whole conversation so far");
+    expect(s).toContain("[Meet caption]");
   });
 });

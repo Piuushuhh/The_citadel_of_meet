@@ -15,6 +15,10 @@
   #status.bad { background: #fde7e7; }
   #log { max-height: 160px; overflow: auto; margin-top: 8px; font-size: 12px; border-top: 1px solid #ddd; padding-top: 6px; }
   .consent { margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; font-weight: 400; }
+  details { margin-top: 8px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; }
+  summary { cursor: pointer; font-weight: 600; }
+  #profile { width: 100%; box-sizing: border-box; height: 110px; margin-top: 6px; font: 12px system-ui, sans-serif; resize: vertical; }
+  .hint { font-size: 11px; color: #555; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -23,21 +27,39 @@
   <input id="name" type="text" />
   <label for="wake">Name it responds to</label>
   <input id="wake" type="text" placeholder="e.g. Sam" />
-  <label for="mode">Mode</label>
-  <select id="mode">
-    <option value="explicit">Explicit address (replies when its name is said)</option>
-    <option value="manual">Manual (replies only when you press Respond)</option>
-    <option value="automatic">Automatic (AI decides after each completed utterance)</option>
-  </select>
-  <label class="consent"><input id="captions" type="checkbox" />
-    <span>Experimental: use Google Meet's captions to hear questions (turns Meet captions on while active)</span></label>
+  <div class="hint">Replies automatically: always when its name is said; in a one-to-one meeting to everything; otherwise when the AI judges a question is meant for it. It hears through Google Meet's captions, which it turns on.</div>
+  <details id="profileBox">
+    <summary>About you <span id="profileCount" class="hint"></span></summary>
+    <div class="hint">Who you are, your role, projects, anything the delegate should know. Type here or add a PDF / Markdown / text file. Sent to OpenAI as the delegate's context while it runs.</div>
+    <textarea id="profile" placeholder="e.g. I'm Sam, product lead for the Falcon launch. I own the budget and the March 14 date…"></textarea>
+    <div class="row">
+      <input id="profileFile" type="file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain" hidden />
+      <button id="profileAdd" type="button">Add PDF / MD / TXT…</button>
+      <button id="profileClear" type="button">Clear</button>
+    </div>
+    <div id="profileInfo" class="hint"></div>
+  </details>
+  <details id="memoryBox">
+    <summary>Meeting memory <span id="memoryCount" class="hint"></span></summary>
+    <div class="hint">Saved on this computer for this meeting, so a restarted delegate picks up where it left off. Summaries are written by OpenAI via your local backend every 15 lines.</div>
+    <div style="font-weight:600;margin-top:6px">To do: promised to pass on</div>
+    <div id="promises" class="hint">(none)</div>
+    <div style="font-weight:600;margin-top:6px">Notes so far</div>
+    <pre id="memorySummary" class="hint" style="white-space:pre-wrap;max-height:140px;overflow:auto;margin:2px 0">(no summary yet)</pre>
+    <div class="row">
+      <button id="memoryUpdate" type="button">Update now</button>
+      <button id="memorySave" type="button" title="Adds these notes and open to-dos to About you, so future meetings know about them">Save to About you</button>
+      <button id="memoryForget" type="button">Forget this meeting</button>
+    </div>
+    <div id="memoryInfo" class="hint"></div>
+  </details>
   <label for="token">Local backend token</label>
   <input id="token" type="password" />
   <label class="consent"><input id="consent" type="checkbox" />
     <span>Participants in this meeting have agreed to an AI delegate taking part and to transcription.</span></label>
   <div class="row">
     <button id="start">Start</button>
-    <button id="respond">Respond</button>
+    <button id="respond" title="Reply now to the last thing said">Answer now</button>
     <button id="pause">Pause</button>
     <button id="resume">Resume</button>
     <button id="takeover">Take Over</button>

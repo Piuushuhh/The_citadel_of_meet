@@ -15,13 +15,28 @@ async function settings(): Promise<Settings> {
 async function mint(params: { name: string; style?: string }) {
   const s = await settings();
   if (!s.token) throw new Error("Set the local token in the popup first");
+  // The "About you" text is read here from extension storage, never passed through the Meet page.
+  const { profile } = (await chrome.storage.local.get("profile")) as { profile?: string };
   const res = await fetch(`${s.serverUrl || SERVER_DEFAULT}/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-standin-token": s.token },
+    body: JSON.stringify({ name: params.name, style: params.style, profile: profile?.trim() || undefined }),
+  });
+  if (!res.ok) throw new Error(`backend /session returned ${res.status}`);
+  return res.json();
+}
+
+/** Meeting memory: running summary via the local backend (which holds the OpenAI key). */
+async function summarize(params: { name: string; previousSummary?: string; lines: { speaker: string; text: string }[] }) {
+  const s = await settings();
+  if (!s.token) throw new Error("Set the local token in the popup first");
+  const res = await fetch(`${s.serverUrl || SERVER_DEFAULT}/summarize`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-standin-token": s.token },
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error(`backend /session returned ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error(`backend /summarize returned ${res.status}`);
+  return ((await res.json()) as { summary: string }).summary;
 }
 
 async function sdp(params: { offer: string; secret: string; model: string }) {
@@ -36,7 +51,14 @@ async function sdp(params: { offer: string; secret: string; model: string }) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.kind !== "rpc") return false;
-  const run = msg.method === "mint" ? mint(msg.params) : msg.method === "sdp" ? sdp(msg.params) : null;
+  const run =
+    msg.method === "mint"
+      ? mint(msg.params)
+      : msg.method === "sdp"
+        ? sdp(msg.params)
+        : msg.method === "summarize"
+          ? summarize(msg.params)
+          : null;
   if (!run) {
     sendResponse({ ok: false, error: "unknown method" });
     return false;

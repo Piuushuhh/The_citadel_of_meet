@@ -6,7 +6,6 @@ const status = (state: StatusMsg["state"], debug?: StatusMsg["debug"], detail?: 
   state,
   debug,
   detail,
-  remoteAudioTracks: 0,
 });
 
 describe("popup startup status", () => {
@@ -15,8 +14,8 @@ describe("popup startup status", () => {
   });
 
   it("reports ready only when the peer and data channel are ready", () => {
-    expect(startupPhase(status("thinking", { pc: "connected", dc: "open", mixPeak: 0, tracks: [], allRemoteSeen: 0 }))).toBe("ready");
-    expect(startupPhase(status("listening", { pc: "connected", dc: "connecting", mixPeak: 0, tracks: [], allRemoteSeen: 0 }))).toBe("starting");
+    expect(startupPhase(status("thinking", { pc: "connected", dc: "open" }))).toBe("ready");
+    expect(startupPhase(status("listening", { pc: "connected", dc: "connecting" }))).toBe("starting");
   });
 
   it("reports startup errors and preserves the useful detail", () => {

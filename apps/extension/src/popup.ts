@@ -1,12 +1,16 @@
-import type { Command, StatusMsg } from "./protocol";
+import type { Command, MemoryView, StatusMsg } from "./protocol";
+import { pastMeetingBlock } from "./memory";
 import { startupError, startupPhase, withTimeout } from "./popupState";
+import { PROFILE_MAX_CHARS, appendProfile, profileFileKind } from "./profile";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const STARTUP_TIMEOUT_MS = 45_000;
 const COMMAND_TIMEOUT_MS = 5_000;
+/** Writing a summary calls a model through the backend; allow for that. */
+const SUMMARY_TIMEOUT_MS = 60_000;
 
 let stickyUntil = 0;
-let latestStatus: StatusMsg = { state: "idle", remoteAudioTracks: 0 };
+let latestStatus: StatusMsg = { state: "idle" };
 let startRequested = false;
 let startCommandPending = false;
 let startRevision = 0;
@@ -19,7 +23,7 @@ async function activeMeetTab(): Promise<number | null> {
   return tab.id;
 }
 
-async function sendCommand(command: Command) {
+async function sendCommand(command: Command, timeoutMs = COMMAND_TIMEOUT_MS) {
   try {
     return await withTimeout(
       (async () => {
@@ -31,8 +35,8 @@ async function sendCommand(command: Command) {
         }
         return chrome.tabs.sendMessage(id, { kind: "command", command });
       })(),
-      COMMAND_TIMEOUT_MS,
-      "The Meet tab did not respond within 5 seconds.",
+      timeoutMs,
+      `The Meet tab did not respond within ${Math.round(timeoutMs / 1000)} seconds.`,
     );
   } catch (error) {
     lastCommandError = error instanceof Error ? error.message : "Could not reach the Meet tab";
@@ -144,7 +148,7 @@ function applyStatus(status: StatusMsg) {
   if (phase === "failed") {
     showStatusText(status.detail || startupError(status), true);
   } else {
-    showStatusText(`${status.state}${status.detail ? `: ${status.detail}` : ""} · meeting audio tracks: ${status.remoteAudioTracks}`, status.state === "needs-user" || status.state === "disconnected");
+    showStatusText(`${status.state}${status.detail ? `: ${status.detail}` : ""}${status.state !== "idle" && status.captions === false ? " · captions off" : ""}${status.participants ? ` · ${status.participants} in meeting` : ""}`, status.state === "needs-user" || status.state === "disconnected");
   }
 }
 
@@ -167,12 +171,142 @@ async function refresh() {
   }
 }
 
+// ---------- "About you" (profile) ----------
+async function initProfile() {
+  const box = $<HTMLTextAreaElement>("profile");
+  const info = $("profileInfo");
+  const count = $("profileCount");
+  const { profile } = (await chrome.storage.local.get("profile")) as { profile?: string };
+  box.value = profile ?? "";
+  box.maxLength = PROFILE_MAX_CHARS;
+  const showCount = () => {
+    count.textContent = box.value.trim() ? `(${box.value.length.toLocaleString()} / ${PROFILE_MAX_CHARS.toLocaleString()} chars)` : "(empty)";
+  };
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const save = () => chrome.storage.local.set({ profile: box.value });
+  box.addEventListener("input", () => {
+    showCount();
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void save(), 400);
+  });
+  showCount();
+
+  const fileInput = $<HTMLInputElement>("profileFile");
+  $("profileAdd").onclick = () => fileInput.click();
+  $("profileClear").onclick = async () => {
+    box.value = "";
+    await save();
+    showCount();
+    info.textContent = "Cleared. Restart the delegate for it to take effect.";
+  };
+  fileInput.onchange = async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    const kind = profileFileKind(file.name, file.type);
+    if (!kind) {
+      info.textContent = "Only PDF, Markdown (.md) or text (.txt) files are supported.";
+      return;
+    }
+    try {
+      let text: string;
+      if (kind === "text") {
+        text = await file.text();
+      } else {
+        info.textContent = `Reading ${file.name}…`;
+        const token = $<HTMLInputElement>("token").value.trim() || ((await chrome.storage.local.get("token")).token as string | undefined);
+        if (!token) throw new Error("enter the local backend token first (PDFs are read by your local backend)");
+        const { serverUrl } = (await chrome.storage.local.get("serverUrl")) as { serverUrl?: string };
+        const res = await fetch(`${serverUrl || "http://127.0.0.1:8787"}/extract-pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf", "x-standin-token": token },
+          body: file,
+        });
+        const j = (await res.json().catch(() => ({}))) as { text?: string; pages?: number; error?: string };
+        if (!res.ok || !j.text) throw new Error(j.error ?? `backend returned ${res.status}`);
+        text = j.text;
+      }
+      if (!text.trim()) throw new Error("the file has no text");
+      const r = appendProfile(box.value, file.name, text);
+      box.value = r.text;
+      await save();
+      showCount();
+      $<HTMLDetailsElement>("profileBox").open = true;
+      info.textContent =
+        `Added ${file.name}.` + (r.truncated ? ` Trimmed to ${PROFILE_MAX_CHARS.toLocaleString()} characters.` : "") + " Restart the delegate for it to take effect.";
+    } catch (e) {
+      info.textContent = `Could not add ${file.name}: ${(e as Error).message}`;
+    }
+  };
+}
+
+// ---------- Meeting memory ----------
+function renderMemory(v: MemoryView | null) {
+  const count = $("memoryCount");
+  const list = $("promises");
+  const summary = $("memorySummary");
+  const info = $("memoryInfo");
+  if (!v) return;
+  const open = v.promises.filter((p) => !p.done).length;
+  count.textContent = v.code ? `(${v.lines} lines${open ? `, ${open} to-do` : ""})` : "";
+  summary.textContent = v.summary ?? (v.lines ? `(no summary yet: ${v.unsummarized} lines waiting)` : "(nothing yet)");
+  list.textContent = "";
+  if (v.promises.length === 0) list.textContent = "(none)";
+  for (const p of v.promises) {
+    const row = document.createElement("label");
+    row.className = "consent";
+    row.style.marginTop = "2px";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = p.done;
+    cb.onchange = async () => renderMemory((await sendCommand({ cmd: "setPromiseDone", id: p.id, done: cb.checked })) as MemoryView | null);
+    const span = document.createElement("span");
+    // textContent only: meeting text is never treated as HTML.
+    span.textContent = `${p.question ? `"${p.question}" → ` : ""}${p.reply}`;
+    if (p.done) span.style.textDecoration = "line-through";
+    row.append(cb, span);
+    list.appendChild(row);
+  }
+  info.textContent = v.summarizing ? "Writing summary…" : v.error && v.code ? `Summary problem: ${v.error}` : "";
+}
+
+async function initMemory() {
+  const refresh = async () => renderMemory((await sendCommand({ cmd: "getMemory" })) as MemoryView | null);
+  $("memoryBox").addEventListener("toggle", () => void refresh());
+  $("memoryUpdate").onclick = async () => {
+    $("memoryInfo").textContent = "Writing summary…";
+    renderMemory((await sendCommand({ cmd: "summarizeNow" }, SUMMARY_TIMEOUT_MS)) as MemoryView | null);
+  };
+  $("memoryForget").onclick = async () => {
+    renderMemory((await sendCommand({ cmd: "forgetMeeting" })) as MemoryView | null);
+    $("memoryInfo").textContent = "Forgotten. A restarted delegate will start fresh in this meeting.";
+  };
+  // Opt-in carry-over to future meetings: only when the user presses this button.
+  $("memorySave").onclick = async () => {
+    $("memoryInfo").textContent = "Writing summary…";
+    const v = (await sendCommand({ cmd: "summarizeNow" }, SUMMARY_TIMEOUT_MS)) as MemoryView | null;
+    if (!v?.code || !v.summary) {
+      $("memoryInfo").textContent = "Nothing to save yet (no summary). Is the backend running?";
+      return;
+    }
+    const box = $<HTMLTextAreaElement>("profile");
+    const r = appendProfile(box.value, "Past meetings", pastMeetingBlock({ code: v.code, summary: v.summary, promises: v.promises }, new Date()));
+    box.value = r.text;
+    box.dispatchEvent(new Event("input")); // saves and updates the count
+    renderMemory(v);
+    $("memoryInfo").textContent = `Saved to About you${r.truncated ? " (trimmed to fit)" : ""}. Future meetings will know this once you press Start.`;
+  };
+  await refresh();
+}
+
 async function init() {
-  const saved = await chrome.storage.local.get(["name", "wake", "mode", "token", "captions"]);
-  $<HTMLInputElement>("captions").checked = saved.captions === true;
+  await initProfile();
+  await initMemory();
+  const saved = await chrome.storage.local.get(["name", "wake", "token"]);
+  // Settings from older versions (modes, captions checkbox) no longer exist.
+  void chrome.storage.local.remove(["mode", "captions"]);
   $<HTMLInputElement>("name").value = saved.name ?? "";
   $<HTMLInputElement>("wake").value = saved.wake ?? "";
-  $<HTMLSelectElement>("mode").value = saved.mode ?? "explicit";
   $<HTMLInputElement>("token").value = saved.token ?? "";
 
   const startButton = $<HTMLButtonElement>("start");
@@ -180,9 +314,7 @@ async function init() {
     if (startRequested || startCommandPending || startButton.disabled) return;
     const name = $<HTMLInputElement>("name").value.trim();
     const wake = $<HTMLInputElement>("wake").value.trim() || name;
-    const mode = $<HTMLSelectElement>("mode").value as "explicit" | "manual" | "automatic";
     const token = $<HTMLInputElement>("token").value.trim();
-    const captions = $<HTMLInputElement>("captions").checked;
     if (!name) return notice("Enter your name");
     if (!token) return notice("Enter the local backend token");
     if (!$<HTMLInputElement>("consent").checked) return notice("Confirm participant consent first");
@@ -196,9 +328,8 @@ async function init() {
     showStatusText("Starting…");
     armStartupTimer();
     try {
-      await chrome.storage.local.set({ name, wake, mode, token, captions });
-      const wakeSource = captions ? "captions" : "openai";
-      const response = await sendCommand({ cmd: "start", cfg: { name, wakeName: wake, mode, wakeSource }, consentAt: Date.now() });
+      await chrome.storage.local.set({ name, wake, token });
+      const response = await sendCommand({ cmd: "start", cfg: { name, wakeName: wake }, consentAt: Date.now() });
       if (!response || typeof response !== "object" || (response as { ok?: unknown }).ok !== true) {
         const failure = lastCommandError || "The Start request could not be delivered to the Meet tab.";
         await sendCommand({ cmd: "takeover" });

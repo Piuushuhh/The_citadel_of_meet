@@ -18,6 +18,7 @@ const app = createApp(
     apiKey,
     model: process.env.REALTIME_MODEL ?? "gpt-realtime",
     voice: process.env.REALTIME_VOICE ?? "marin",
+    summaryModel: process.env.SUMMARY_MODEL || "gpt-4.1-mini",
     knowledge,
   },
   localToken,
