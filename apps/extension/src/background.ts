@@ -10,10 +10,12 @@ interface Settings {
   liveModel?: string;
   textModel?: string;
   voice?: string;
+  /** Let the delegate search the web for current facts. Default on. */
+  webSearch?: boolean;
 }
 
 async function settings(): Promise<Settings> {
-  return (await chrome.storage.local.get(["serverUrl", "apiKey", "liveModel", "textModel", "voice"])) as Settings;
+  return (await chrome.storage.local.get(["serverUrl", "apiKey", "liveModel", "textModel", "voice", "webSearch"])) as Settings;
 }
 
 /** POST to the local backend with the user's key and model choices; surfaces the backend's own error text. */
@@ -23,7 +25,7 @@ async function backend<T>(path: string, body: Record<string, unknown>): Promise<
   const res = await fetch(`${s.serverUrl || SERVER_DEFAULT}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-gemini-key": s.apiKey },
-    body: JSON.stringify({ ...body, liveModel: s.liveModel, textModel: s.textModel, voice: s.voice }),
+    body: JSON.stringify({ ...body, liveModel: s.liveModel, textModel: s.textModel, voice: s.voice, webSearch: s.webSearch !== false }),
   });
   if (!res.ok) {
     const detail = ((await res.json().catch(() => ({}))) as { error?: string }).error;
