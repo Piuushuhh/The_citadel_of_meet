@@ -6,9 +6,7 @@ import { loadProjectEnv } from "./env.js";
 loadProjectEnv(new URL("../../../.env", import.meta.url));
 
 const apiKey = process.env.GEMINI_API_KEY ?? "";
-const localToken = process.env.STANDIN_LOCAL_TOKEN ?? "";
-if (!apiKey) throw new Error("GEMINI_API_KEY is not set (backend only)");
-if (localToken.length < 16) throw new Error("STANDIN_LOCAL_TOKEN must be at least 16 chars");
+// The key normally comes from the extension popup with each request; GEMINI_API_KEY is only an optional fallback.
 
 const kpath = new URL("../knowledge.test.md", import.meta.url);
 const knowledge = existsSync(kpath) ? readFileSync(kpath, "utf8") : "";
@@ -21,7 +19,6 @@ const app = createApp(
     summaryModel: process.env.TEXT_MODEL || "gemini-2.5-flash",
     knowledge,
   },
-  localToken,
 );
 const port = Number(process.env.PORT ?? 8787);
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info) => {

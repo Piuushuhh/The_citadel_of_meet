@@ -53,8 +53,25 @@
     </div>
     <div id="memoryInfo" class="hint"></div>
   </details>
-  <label for="token">Local backend token</label>
-  <input id="token" type="password" />
+  <details id="modelBox" open>
+    <summary>AI model &amp; API key <span id="modelState" class="hint"></span></summary>
+    <label for="apiKey">Your Gemini API key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="Paste your key (free at aistudio.google.com)" />
+    <div class="hint">Stays in this browser. It is sent with each request to your local backend, which passes it to Google. Nothing else stores it.</div>
+    <label for="liveModel">Voice model (speaks in the meeting)</label>
+    <input id="liveModel" type="text" list="liveModels" autocomplete="off" />
+    <datalist id="liveModels"></datalist>
+    <label for="voice">Voice</label>
+    <select id="voice">
+      <option>Puck</option><option>Kore</option><option>Charon</option><option>Fenrir</option>
+      <option>Aoede</option><option>Leda</option><option>Orus</option><option>Zephyr</option>
+    </select>
+    <label for="textModel">Text model (notes and "is this for me")</label>
+    <input id="textModel" type="text" list="textModels" autocomplete="off" />
+    <datalist id="textModels"></datalist>
+    <div class="row"><button id="loadModels" type="button">Load models for my key</button></div>
+    <div id="modelInfo" class="hint"></div>
+  </details>
   <label class="consent"><input id="consent" type="checkbox" />
     <span>Participants in this meeting have agreed to an AI delegate taking part and to transcription.</span></label>
   <div class="row">

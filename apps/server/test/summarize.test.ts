@@ -2,17 +2,16 @@ import { describe, it, expect, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { parseSummarizeRequest, summaryInput, summaryInstructions } from "../src/summarize.js";
 
-const TOKEN = "a".repeat(20);
-const H = { "x-standin-token": TOKEN, "content-type": "application/json" };
+const H = { "x-gemini-key": "user-key", "content-type": "application/json" };
 const okFetch = (text: string) =>
   vi.fn(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 }));
 const app = (fetchImpl: typeof fetch) =>
-  createApp({ apiKey: "gk-test", model: "live-model", voice: "Puck", knowledge: "K", summaryModel: "gemini-text", fetchImpl }, TOKEN);
+  createApp({ apiKey: "gk-test", model: "live-model", voice: "Puck", knowledge: "K", summaryModel: "gemini-text", fetchImpl });
 
 describe("POST /summarize", () => {
-  it("requires the local token", async () => {
-    const r = await app(okFetch("x") as never).request("/summarize", { method: "POST", body: "{}" });
-    expect(r.status).toBe(401);
+  it("refuses web-page origins", async () => {
+    const r = await app(okFetch("x") as never).request("/summarize", { method: "POST", headers: { origin: "https://evil.example" }, body: "{}" });
+    expect(r.status).toBe(403);
   });
 
   it("sends previous notes and new lines to the summary model and returns the notes", async () => {

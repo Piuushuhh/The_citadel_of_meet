@@ -214,12 +214,10 @@ async function initProfile() {
         text = await file.text();
       } else {
         info.textContent = `Reading ${file.name}…`;
-        const token = $<HTMLInputElement>("token").value.trim() || ((await chrome.storage.local.get("token")).token as string | undefined);
-        if (!token) throw new Error("enter the local backend token first (PDFs are read by your local backend)");
         const { serverUrl } = (await chrome.storage.local.get("serverUrl")) as { serverUrl?: string };
         const res = await fetch(`${serverUrl || "http://127.0.0.1:8787"}/extract-pdf`, {
           method: "POST",
-          headers: { "Content-Type": "application/pdf", "x-standin-token": token },
+          headers: { "Content-Type": "application/pdf" },
           body: file,
         });
         const j = (await res.json().catch(() => ({}))) as { text?: string; pages?: number; error?: string };
@@ -299,24 +297,82 @@ async function initMemory() {
   await refresh();
 }
 
+// ---------- AI model & API key ----------
+const DEFAULT_LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+const DEFAULT_TEXT_MODEL = "gemini-2.5-flash";
+
+async function initModels() {
+  const f = {
+    apiKey: $<HTMLInputElement>("apiKey"),
+    liveModel: $<HTMLInputElement>("liveModel"),
+    textModel: $<HTMLInputElement>("textModel"),
+    voice: $<HTMLSelectElement>("voice"),
+  };
+  const saved = (await chrome.storage.local.get(["apiKey", "liveModel", "textModel", "voice"])) as Record<string, string | undefined>;
+  f.apiKey.value = saved.apiKey ?? "";
+  f.liveModel.value = saved.liveModel || DEFAULT_LIVE_MODEL;
+  f.textModel.value = saved.textModel || DEFAULT_TEXT_MODEL;
+  f.voice.value = saved.voice || "Puck";
+  const info = $("modelInfo");
+  const showState = () => ($("modelState").textContent = f.apiKey.value.trim() ? "" : "(key needed)");
+  showState();
+
+  const save = async () => {
+    await chrome.storage.local.set({
+      apiKey: f.apiKey.value.trim(),
+      liveModel: f.liveModel.value.trim() || DEFAULT_LIVE_MODEL,
+      textModel: f.textModel.value.trim() || DEFAULT_TEXT_MODEL,
+      voice: f.voice.value,
+    });
+    showState();
+  };
+  for (const el of Object.values(f)) el.addEventListener("change", () => void save());
+  f.apiKey.addEventListener("input", () => void save());
+
+  const fill = (id: string, names: string[]) => {
+    $(id).replaceChildren(...names.map((n) => Object.assign(document.createElement("option"), { value: n })));
+  };
+  $<HTMLButtonElement>("loadModels").onclick = async () => {
+    const key = f.apiKey.value.trim();
+    if (!key) {
+      info.textContent = "Enter your API key first.";
+      return;
+    }
+    info.textContent = "Loading models…";
+    try {
+      const { serverUrl } = (await chrome.storage.local.get("serverUrl")) as { serverUrl?: string };
+      const res = await fetch(`${serverUrl || "http://127.0.0.1:8787"}/models`, { headers: { "x-gemini-key": key } });
+      const j = (await res.json().catch(() => ({}))) as { live?: string[]; text?: string[]; error?: string };
+      if (!res.ok || !j.live) throw new Error(j.error ?? `backend returned ${res.status}`);
+      fill("liveModels", j.live);
+      fill("textModels", j.text ?? []);
+      info.textContent = `Key works. ${j.live.length} voice and ${j.text?.length ?? 0} text models available: click a model box to pick one.`;
+    } catch (e) {
+      info.textContent = `Could not load models: ${(e as Error).message}. Is the backend running?`;
+    }
+  };
+}
+
 async function init() {
   await initProfile();
   await initMemory();
-  const saved = await chrome.storage.local.get(["name", "wake", "token"]);
+  const saved = await chrome.storage.local.get(["name", "wake"]);
+  await initModels();
   // Settings from older versions (modes, captions checkbox) no longer exist.
   void chrome.storage.local.remove(["mode", "captions"]);
   $<HTMLInputElement>("name").value = saved.name ?? "";
   $<HTMLInputElement>("wake").value = saved.wake ?? "";
-  $<HTMLInputElement>("token").value = saved.token ?? "";
 
   const startButton = $<HTMLButtonElement>("start");
   startButton.onclick = async () => {
     if (startRequested || startCommandPending || startButton.disabled) return;
     const name = $<HTMLInputElement>("name").value.trim();
     const wake = $<HTMLInputElement>("wake").value.trim() || name;
-    const token = $<HTMLInputElement>("token").value.trim();
     if (!name) return notice("Enter your name");
-    if (!token) return notice("Enter the local backend token");
+    if (!$<HTMLInputElement>("apiKey").value.trim()) {
+      $<HTMLDetailsElement>("modelBox").open = true;
+      return notice("Enter your Gemini API key");
+    }
     if (!$<HTMLInputElement>("consent").checked) return notice("Confirm participant consent first");
 
     stickyUntil = 0;
@@ -328,7 +384,7 @@ async function init() {
     showStatusText("Starting…");
     armStartupTimer();
     try {
-      await chrome.storage.local.set({ name, wake, token });
+      await chrome.storage.local.set({ name, wake });
       const response = await sendCommand({ cmd: "start", cfg: { name, wakeName: wake }, consentAt: Date.now() });
       if (!response || typeof response !== "object" || (response as { ok?: unknown }).ok !== true) {
         const failure = lastCommandError || "The Start request could not be delivered to the Meet tab.";

@@ -2,10 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { PROFILE_MAX_CHARS, buildInstructions, parseSessionRequest } from "../src/session.js";
 
-const TOKEN = "a".repeat(20);
-const H = { "x-standin-token": TOKEN };
+const H = {};
 const app = () =>
-  createApp({ apiKey: "sk-test", model: "gpt-realtime", voice: "marin", knowledge: "K", fetchImpl: vi.fn() as never }, TOKEN);
+  createApp({ apiKey: "gk-test", model: "live-model", voice: "Puck", knowledge: "K", fetchImpl: vi.fn() as never });
 
 /** A minimal valid one-page PDF containing `text` (xref offsets computed so pdf.js accepts it). */
 function makePdf(text: string): Blob {
@@ -54,9 +53,9 @@ describe("profile (About you)", () => {
 });
 
 describe("POST /extract-pdf", () => {
-  it("requires the local token", async () => {
-    const r = await app().request("/extract-pdf", { method: "POST", body: makePdf("Hi") });
-    expect(r.status).toBe(401);
+  it("refuses requests from web pages (only the extension origin is allowed)", async () => {
+    const r = await app().request("/extract-pdf", { method: "POST", headers: { origin: "https://evil.example" }, body: makePdf("Hi") });
+    expect(r.status).toBe(403);
   });
 
   it("extracts text from a real PDF", async () => {
