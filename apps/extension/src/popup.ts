@@ -308,11 +308,14 @@ async function initModels() {
     textModel: $<HTMLInputElement>("textModel"),
     voice: $<HTMLSelectElement>("voice"),
   };
-  const saved = (await chrome.storage.local.get(["apiKey", "liveModel", "textModel", "voice"])) as Record<string, string | undefined>;
-  f.apiKey.value = saved.apiKey ?? "";
-  f.liveModel.value = saved.liveModel || DEFAULT_LIVE_MODEL;
-  f.textModel.value = saved.textModel || DEFAULT_TEXT_MODEL;
-  f.voice.value = saved.voice || "Puck";
+  const saved = (await chrome.storage.local.get(["apiKey", "liveModel", "textModel", "voice", "webSearch"])) as Record<string, string | boolean | undefined>;
+  f.apiKey.value = (saved.apiKey as string) ?? "";
+  f.liveModel.value = (saved.liveModel as string) || DEFAULT_LIVE_MODEL;
+  f.textModel.value = (saved.textModel as string) || DEFAULT_TEXT_MODEL;
+  f.voice.value = (saved.voice as string) || "Puck";
+  const web = $<HTMLInputElement>("webSearch");
+  web.checked = saved.webSearch !== false;
+  web.addEventListener("change", () => void chrome.storage.local.set({ webSearch: web.checked }));
   const info = $("modelInfo");
   const showState = () => ($("modelState").textContent = f.apiKey.value.trim() ? "" : "(key needed)");
   showState();
