@@ -15,11 +15,8 @@ export type DelegateState =
 export interface StartConfig {
   name: string;
   style?: string;
-  /** Spoken name that triggers a reply in explicit-address mode. */
+  /** Name(s) it answers to, comma-separated. Saying it always gets a reply; otherwise the AI decides. */
   wakeName: string;
-  mode: "explicit" | "manual" | "automatic";
-  /** Experimental: in explicit mode, detect the name from Meet's live captions instead of OpenAI's transcript. */
-  wakeSource?: "openai" | "captions";
 }
 
 export interface StatusMsg {
@@ -27,58 +24,67 @@ export interface StatusMsg {
   /** Monotonic page-session status version, used to distinguish fresh Start feedback from cached status. */
   revision?: number;
   detail?: string;
-  remoteAudioTracks: number;
   consentAt?: number;
-  /** Audio-routing diagnostics (levels are 0..1 peak, decaying). */
+  /** True while Meet's live captions (how the delegate hears the meeting) are on screen. */
+  captions?: boolean;
+  /** People in the meeting including you, from Meet's People badge. */
+  participants?: number;
   debug?: {
     acState?: string;
     pc?: string;
     dc?: string;
-    mixPeak: number;
-    tracks: { id: string; ready: string; muted: boolean; enabled: boolean; peak: number }[];
-    inboundBytesSent?: number;
-    /** Meet's own receive stats: proves whether voice reaches the browser at all. */
-    meetInbound?: {
-      packets: number;
-      audioLevel: number;
-      energy: number;
-      samplesDuration: number;
-      concealed: number;
-      decoded: number;
-    }[];
-    allRemoteSeen: number;
-    /** How many of Meet's own playback chains are being read, and how many Meet created. */
-    taps?: number;
-    meetSourcesSeen?: number;
-    meetElsSeen?: number;
-    meetNodes?: unknown[];
   };
 }
 
 // popup/content -> page
 export type Command =
-  | { cmd: "start"; cfg: StartConfig; consentAt: number }
+  /** `memory` is filled in by the content script: what happened earlier in this meeting (restart recovery). */
+  | { cmd: "start"; cfg: StartConfig; consentAt: number; memory?: string }
   | { cmd: "respond" }
   | { cmd: "pause" }
   | { cmd: "resume" }
   | { cmd: "takeover" }
-  | { cmd: "getStatus" };
+  | { cmd: "getStatus" }
+  // Meeting memory (handled by the content script, never forwarded to the page):
+  | { cmd: "getMemory" }
+  | { cmd: "summarizeNow" }
+  | { cmd: "setPromiseDone"; id: string; done: boolean }
+  | { cmd: "forgetMeeting" };
+
+/** Meeting memory as shown in the popup. */
+export interface MemoryView {
+  code?: string;
+  summary?: string;
+  lines: number;
+  unsummarized: number;
+  promises: { id: string; question?: string; reply: string; ts: number; done: boolean }[];
+  summarizing: boolean;
+  error?: string;
+}
 
 // page -> content (window.postMessage envelope)
 export type PageOut =
   | { kind: "status"; status: StatusMsg }
   | { kind: "transcript"; speaker: "participant" | "delegate"; text: string; ts: number }
   | { kind: "log"; text: string }
-  | { kind: "rpc"; id: number; method: "mint" | "sdp"; params: unknown };
+  | { kind: "rpc"; id: number; method: "mint" | "decide"; params: unknown }
+  /** Gemini Live socket control, relayed by the content script to the background worker. */
+  | { kind: "live"; op: "open"; url: string; setup: unknown }
+  | { kind: "live"; op: "send"; data: string }
+  | { kind: "live"; op: "close" };
 
 // content -> page
 export type PageIn =
   | { kind: "command"; command: Command }
-  | { kind: "rpcResult"; id: number; ok: boolean; result?: unknown; error?: string };
+  /** New running notes for the live session (replaces the previous notes, older items are dropped). */
+  | { kind: "memoryNotes"; text: string }
+  | { kind: "rpcResult"; id: number; ok: boolean; result?: unknown; error?: string }
+  | { kind: "liveEvent"; ev: "open" | "msg" | "close" | "error"; data?: string };
 
 export interface MintResult {
-  value: string;
-  expires_at: number;
+  /** wss URL (with a one-use ephemeral token) and the first message to send on it. */
+  url: string;
+  setup: unknown;
   model: string;
 }
 
