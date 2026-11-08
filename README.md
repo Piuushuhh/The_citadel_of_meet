@@ -4,7 +4,7 @@ An AI delegate for Google Meet (desktop Chrome, Windows). It only participates a
 
 ## Setup
 1. Node 22 and pnpm. `pnpm install`
-2. Copy `.env.example` to `.env`. Set `OPENAI_API_KEY` (an `sk-` key from platform.openai.com; Realtime API access and billing required) and a random `STANDIN_LOCAL_TOKEN` (16+ chars). The project `.env` overrides any system-level variable.
+2. Copy `.env.example` to `.env`. Set `GEMINI_API_KEY` (a free key from aistudio.google.com; optional `LIVE_MODEL`, `LIVE_VOICE`, `TEXT_MODEL`) and a random `STANDIN_LOCAL_TOKEN` (16+ chars). The project `.env` overrides any system-level variable.
 3. Start the backend: `cd apps/server && pnpm dev` (listens on 127.0.0.1:8787 only).
 4. Build the extension: `cd apps/extension && pnpm build`. In Chrome open `chrome://extensions`, enable Developer mode, **Load unpacked**, choose `apps/extension/dist`.
 5. Reload any open Meet tab.
@@ -17,7 +17,7 @@ An AI delegate for Google Meet (desktop Chrome, Windows). It only participates a
 5. **Meeting memory** in the popup shows the running notes and a to-do list of what it promised to pass on to you. The test knowledge is in `apps/server/knowledge.test.md`.
 
 ## Data flow
-Leaves your device: the text of Google Meet's live captions while the delegate is active (no meeting audio is sent: it hears through captions), prompts/approved knowledge and your "About you" text (typed, or extracted from an uploaded PDF/Markdown file) in session instructions. Uploaded PDFs are converted to text by your local backend and are not stored; the extracted text is kept in the extension's local storage until you clear it. Meeting memory: what is said while the delegate runs (captions/transcripts, its replies) is kept in the extension's local storage per meeting code (max 2000 lines, deleted after 30 days or with "Forget this meeting"); every 15 lines the new lines are sent through your local backend to OpenAI (SUMMARY_MODEL, default gpt-4.1-mini) to update the running notes. Nothing carries over to other meetings unless you press "Save to About you". Stays local: settings, token. Raw audio is not stored. Nothing is captured before you press Start. This is a cloud-backed system, not a local one.
+Leaves your device: the text of Google Meet's live captions while the delegate is active (no meeting audio is sent: it hears through captions), prompts/approved knowledge and your "About you" text (typed, or extracted from an uploaded PDF/Markdown file) in session instructions. Uploaded PDFs are converted to text by your local backend and are not stored; the extracted text is kept in the extension's local storage until you clear it. Meeting memory: what is said while the delegate runs (captions/transcripts, its replies) is kept in the extension's local storage per meeting code (max 2000 lines, deleted after 30 days or with "Forget this meeting"); every 15 lines the new lines are sent through your local backend to Gemini (TEXT_MODEL, default gemini-2.5-flash) to update the running notes. Nothing carries over to other meetings unless you press "Save to About you". Stays local: settings, token. Raw audio is not stored. Nothing is captured before you press Start. This is a cloud-backed system, not a local one.
 
 ## Known limitations
 - Depends on Meet's page behavior (mic swap by wrapping `getUserMedia`; captions and the People count read from the page); Meet updates could break it. Fallback: virtual audio cable plus OBS virtual camera.

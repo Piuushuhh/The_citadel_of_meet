@@ -5,9 +5,9 @@ import { parseSummarizeRequest, summaryInput, summaryInstructions } from "../src
 const TOKEN = "a".repeat(20);
 const H = { "x-standin-token": TOKEN, "content-type": "application/json" };
 const okFetch = (text: string) =>
-  vi.fn(async () => new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text }] }] }), { status: 200 }));
+  vi.fn(async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 }));
 const app = (fetchImpl: typeof fetch) =>
-  createApp({ apiKey: "sk-test", model: "gpt-realtime", voice: "marin", knowledge: "K", summaryModel: "gpt-4.1-mini", fetchImpl }, TOKEN);
+  createApp({ apiKey: "gk-test", model: "live-model", voice: "Puck", knowledge: "K", summaryModel: "gemini-text", fetchImpl }, TOKEN);
 
 describe("POST /summarize", () => {
   it("requires the local token", async () => {
@@ -25,11 +25,10 @@ describe("POST /summarize", () => {
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ summary: "Decisions:\n- Launch March 14" });
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.openai.com/v1/responses");
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-text:generateContent");
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("gpt-4.1-mini");
-    expect(body.instructions).toContain("Delegate promised to pass to Sam");
-    expect(JSON.parse(body.input)).toEqual({ previous_notes: "Decisions: none", new_lines: ["Priya: We launch March 14."] });
+    expect(body.systemInstruction.parts[0].text).toContain("Delegate promised to pass to Sam");
+    expect(JSON.parse(body.contents[0].parts[0].text)).toEqual({ previous_notes: "Decisions: none", new_lines: ["Priya: We launch March 14."] });
   });
 
   it("does not leak upstream errors", async () => {

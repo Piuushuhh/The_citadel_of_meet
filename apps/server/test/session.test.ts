@@ -3,9 +3,9 @@ import { createApp } from "../src/app.js";
 import { buildInstructions } from "../src/session.js";
 
 const cfg = (fetchImpl: typeof fetch) => ({
-  apiKey: "sk-test",
-  model: "gpt-realtime",
-  voice: "marin",
+  apiKey: "gk-test",
+  model: "live-model",
+  voice: "Puck",
   knowledge: "Launch is March 14.",
   fetchImpl,
 });
@@ -31,21 +31,23 @@ describe("POST /session", () => {
     expect(r.status).toBe(400);
   });
 
-  it("mints a secret and never returns the API key", async () => {
-    const f = vi.fn(async () => new Response(JSON.stringify({ value: "ek_abc", expires_at: 123 }), { status: 200 }));
+  it("mints an ephemeral token and never returns the API key", async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ name: "auth_tokens/abc" }), { status: 200 }));
     const app = createApp(cfg(f as never), TOKEN);
     const r = await app.request("/session", { method: "POST", headers: H, body: JSON.stringify({ name: "Sam" }) });
     expect(r.status).toBe(200);
     const text = await r.text();
-    expect(text).toContain("ek_abc");
-    expect(text).not.toContain("sk-test");
-    const sent = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
-    expect(sent.session.instructions).toContain("AI delegate for Sam");
-    expect(sent.session.audio.input.turn_detection.create_response).toBe(false);
-    // The delegate hears through Meet captions (text): no audio transcription, no audio-driven interruption.
-    expect(sent.session.audio.input.transcription).toBeUndefined();
-    expect(sent.session.audio.input.turn_detection.interrupt_response).toBe(false);
-    expect(sent.session.instructions).toContain("[Meet caption]");
+    expect(text).toContain("auth_tokens%2Fabc");
+    expect(text).not.toContain("gk-test");
+    const body = JSON.parse(text);
+    expect(body.url).toMatch(/^wss:\/\/generativelanguage\.googleapis\.com\//);
+    expect(body.setup.setup.model).toBe("models/live-model");
+    expect(body.setup.setup.generationConfig.responseModalities).toEqual(["AUDIO"]);
+    expect(body.setup.setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe("Puck");
+    expect(body.setup.setup.systemInstruction.parts[0].text).toContain("AI delegate for Sam");
+    expect(body.setup.setup.systemInstruction.parts[0].text).toContain("[Meet caption]");
+    const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)["x-goog-api-key"]).toBe("gk-test");
   });
 
   it("returns 502 without leaking upstream detail", async () => {

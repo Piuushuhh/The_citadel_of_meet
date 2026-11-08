@@ -67,18 +67,24 @@ export type PageOut =
   | { kind: "status"; status: StatusMsg }
   | { kind: "transcript"; speaker: "participant" | "delegate"; text: string; ts: number }
   | { kind: "log"; text: string }
-  | { kind: "rpc"; id: number; method: "mint" | "sdp"; params: unknown };
+  | { kind: "rpc"; id: number; method: "mint" | "decide"; params: unknown }
+  /** Gemini Live socket control, relayed by the content script to the background worker. */
+  | { kind: "live"; op: "open"; url: string; setup: unknown }
+  | { kind: "live"; op: "send"; data: string }
+  | { kind: "live"; op: "close" };
 
 // content -> page
 export type PageIn =
   | { kind: "command"; command: Command }
   /** New running notes for the live session (replaces the previous notes, older items are dropped). */
   | { kind: "memoryNotes"; text: string }
-  | { kind: "rpcResult"; id: number; ok: boolean; result?: unknown; error?: string };
+  | { kind: "rpcResult"; id: number; ok: boolean; result?: unknown; error?: string }
+  | { kind: "liveEvent"; ev: "open" | "msg" | "close" | "error"; data?: string };
 
 export interface MintResult {
-  value: string;
-  expires_at: number;
+  /** wss URL (with a one-use ephemeral token) and the first message to send on it. */
+  url: string;
+  setup: unknown;
   model: string;
 }
 

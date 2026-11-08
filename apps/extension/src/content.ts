@@ -107,6 +107,18 @@ async function memoryView(): Promise<MemoryView> {
 }
 
 // ---------- page <-> extension ----------
+let livePort: chrome.runtime.Port | undefined;
+function openLivePort() {
+  livePort?.disconnect();
+  const port = (livePort = chrome.runtime.connect({ name: "standin-live" }));
+  port.onMessage.addListener((m: { ev: "open" | "msg" | "close" | "error"; data?: string }) => toPage({ kind: "liveEvent", ev: m.ev, data: m.data }));
+  port.onDisconnect.addListener(() => {
+    if (livePort === port) {
+      livePort = undefined;
+      toPage({ kind: "liveEvent", ev: "close", data: "background connection lost" });
+    }
+  });
+}
 window.addEventListener("message", (e) => {
   if (e.source !== window || e.data?.tag !== TAG || e.data.dir !== "to-content") return;
   const msg = e.data.msg as PageOut;
@@ -116,6 +128,13 @@ window.addEventListener("message", (e) => {
     transcript.push({ speaker: msg.speaker, text: msg.text, ts: msg.ts });
     if (transcript.length > 500) transcript.shift();
     void remember(msg.speaker, msg.text, msg.ts);
+  } else if (msg.kind === "live") {
+    if (msg.op === "open") openLivePort();
+    livePort?.postMessage(msg.op === "open" ? { op: "open", url: msg.url, setup: msg.setup } : msg);
+    if (msg.op === "close") {
+      livePort?.disconnect();
+      livePort = undefined;
+    }
   } else if (msg.kind === "rpc") {
     chrome.runtime
       .sendMessage({ kind: "rpc", method: msg.method, params: msg.params })

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { mintClientSecret, parseSessionRequest, type ServerConfig } from "./session.js";
 import { PDF_MAX_BYTES, pdfToText } from "./extract.js";
-import { parseSummarizeRequest, summarize } from "./summarize.js";
+import { geminiText, parseSummarizeRequest, summarize } from "./summarize.js";
 
 function tokenOk(given: string | undefined, expected: string): boolean {
   if (!given || !expected) return false;
@@ -43,10 +43,27 @@ export function createApp(cfg: ServerConfig, localToken: string) {
       return c.json({ error: (e as Error).message }, 400);
     }
     try {
-      return c.json({ summary: await summarize({ apiKey: cfg.apiKey, model: cfg.summaryModel ?? "gpt-4.1-mini", fetchImpl: cfg.fetchImpl }, req) });
+      return c.json({ summary: await summarize({ apiKey: cfg.apiKey, model: cfg.summaryModel ?? "gemini-2.5-flash", fetchImpl: cfg.fetchImpl }, req) });
     } catch (e) {
       console.error(e);
       return c.json({ error: "summary failed" }, 502);
+    }
+  });
+  // "Is the latest line meant for the delegate?" Text-only side call; the extension builds the prompt and parses the answer.
+  app.post("/decide", async (c) => {
+    if (!tokenOk(c.req.header("x-standin-token"), localToken)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    const b = (await c.req.json().catch(() => null)) as { system?: unknown; input?: unknown } | null;
+    if (typeof b?.system !== "string" || typeof b.input !== "string" || b.system.length > 4000 || b.input.length > 8000) {
+      return c.json({ error: "invalid body" }, 400);
+    }
+    try {
+      const text = await geminiText({ apiKey: cfg.apiKey, model: cfg.summaryModel ?? "gemini-2.5-flash", fetchImpl: cfg.fetchImpl }, b.system, b.input);
+      return c.json({ text });
+    } catch (e) {
+      console.error(e);
+      return c.json({ error: "decision failed" }, 502);
     }
   });
   // PDF -> text for the popup's "About you" upload. Local only; the PDF is not stored or sent anywhere.

@@ -30,7 +30,7 @@
   <div class="hint">Replies automatically: always when its name is said; in a one-to-one meeting to everything; otherwise when the AI judges a question is meant for it. It hears through Google Meet's captions, which it turns on.</div>
   <details id="profileBox">
     <summary>About you <span id="profileCount" class="hint"></span></summary>
-    <div class="hint">Who you are, your role, projects, anything the delegate should know. Type here or add a PDF / Markdown / text file. Sent to OpenAI as the delegate's context while it runs.</div>
+    <div class="hint">Who you are, your role, projects, anything the delegate should know. Type here or add a PDF / Markdown / text file. Sent to Google Gemini as the delegate's context while it runs.</div>
     <textarea id="profile" placeholder="e.g. I'm Sam, product lead for the Falcon launch. I own the budget and the March 14 date…"></textarea>
     <div class="row">
       <input id="profileFile" type="file" accept=".pdf,.md,.markdown,.txt,application/pdf,text/markdown,text/plain" hidden />
@@ -41,7 +41,7 @@
   </details>
   <details id="memoryBox">
     <summary>Meeting memory <span id="memoryCount" class="hint"></span></summary>
-    <div class="hint">Saved on this computer for this meeting, so a restarted delegate picks up where it left off. Summaries are written by OpenAI via your local backend every 15 lines.</div>
+    <div class="hint">Saved on this computer for this meeting, so a restarted delegate picks up where it left off. Summaries are written by Gemini via your local backend every 15 lines.</div>
     <div style="font-weight:600;margin-top:6px">To do: promised to pass on</div>
     <div id="promises" class="hint">(none)</div>
     <div style="font-weight:600;margin-top:6px">Notes so far</div>

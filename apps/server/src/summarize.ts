@@ -1,5 +1,5 @@
 // Running meeting summary (meeting memory). Called by the extension every ~15 lines and on demand.
-// Uses a plain text model via the Responses API; the backend holds the API key.
+// Uses a plain Gemini text model; the backend holds the API key.
 
 export interface SummaryLine {
   speaker: string;
@@ -62,23 +62,24 @@ export function summaryInput(req: SummarizeRequest): string {
   });
 }
 
-export async function summarize(cfg: SummarizeConfig, req: SummarizeRequest): Promise<string> {
+/** One-shot text generation with Gemini (system instruction + one user message). */
+export async function geminiText(cfg: SummarizeConfig, system: string, input: string): Promise<string> {
   const f = cfg.fetchImpl ?? fetch;
-  const res = await f("https://api.openai.com/v1/responses", {
+  const res = await f(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: cfg.model, instructions: summaryInstructions(req.name), input: summaryInput(req) }),
+    headers: { "x-goog-api-key": cfg.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: input }] }],
+    }),
   });
-  if (!res.ok) throw new Error(`OpenAI responses failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
-  const data = (await res.json()) as { output_text?: string; output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
-  const text =
-    data.output_text ??
-    (data.output ?? [])
-      .filter((o) => o.type === "message")
-      .flatMap((o) => o.content ?? [])
-      .map((c) => c.text ?? "")
-      .join("");
-  const summary = text.trim().slice(0, MAX_SUMMARY_CHARS);
+  if (!res.ok) throw new Error(`Gemini generateContent failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  return (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+}
+
+export async function summarize(cfg: SummarizeConfig, req: SummarizeRequest): Promise<string> {
+  const summary = (await geminiText(cfg, summaryInstructions(req.name), summaryInput(req))).slice(0, MAX_SUMMARY_CHARS);
   if (!summary) throw new Error("empty summary");
   return summary;
 }

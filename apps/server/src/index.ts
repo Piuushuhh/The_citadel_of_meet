@@ -5,9 +5,9 @@ import { loadProjectEnv } from "./env.js";
 
 loadProjectEnv(new URL("../../../.env", import.meta.url));
 
-const apiKey = process.env.OPENAI_API_KEY ?? "";
+const apiKey = process.env.GEMINI_API_KEY ?? "";
 const localToken = process.env.STANDIN_LOCAL_TOKEN ?? "";
-if (!apiKey) throw new Error("OPENAI_API_KEY is not set (backend only)");
+if (!apiKey) throw new Error("GEMINI_API_KEY is not set (backend only)");
 if (localToken.length < 16) throw new Error("STANDIN_LOCAL_TOKEN must be at least 16 chars");
 
 const kpath = new URL("../knowledge.test.md", import.meta.url);
@@ -16,9 +16,9 @@ const knowledge = existsSync(kpath) ? readFileSync(kpath, "utf8") : "";
 const app = createApp(
   {
     apiKey,
-    model: process.env.REALTIME_MODEL ?? "gpt-realtime",
-    voice: process.env.REALTIME_VOICE ?? "marin",
-    summaryModel: process.env.SUMMARY_MODEL || "gpt-4.1-mini",
+    model: process.env.LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025",
+    voice: process.env.LIVE_VOICE ?? "Puck",
+    summaryModel: process.env.TEXT_MODEL || "gemini-2.5-flash",
     knowledge,
   },
   localToken,
